@@ -12,7 +12,87 @@ jobs:
         working-directory: PtichyaBurmalda
         run: |
           sed -i "s|implementation 'androidx.webkit:webkit:1.11.0'|implementation 'androidx.webkit:webkit:1.11.0'\n    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')|" app/build.gradle
-          cat app/build.gradle
+      - name: Fullscreen MainActivity
+        working-directory: PtichyaBurmalda
+        run: |
+          cat > app/src/main/java/ru/ptichya/burmalda/MainActivity.java <<'EOF'
+          package ru.ptichya.burmalda;
+
+          import android.annotation.SuppressLint;
+          import android.graphics.Color;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.view.WindowManager;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          import androidx.activity.OnBackPressedCallback;
+          import androidx.appcompat.app.AppCompatActivity;
+          import androidx.core.view.WindowCompat;
+          import androidx.core.view.WindowInsetsCompat;
+          import androidx.core.view.WindowInsetsControllerCompat;
+          import androidx.webkit.WebViewAssetLoader;
+
+          public class MainActivity extends AppCompatActivity {
+              private WebView web;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+                  if (Build.VERSION.SDK_INT >= 28) {
+                      getWindow().getAttributes().layoutInDisplayCutoutMode =
+                          WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                  }
+                  web = new WebView(this);
+                  web.setBackgroundColor(Color.parseColor("#dfe9ee"));
+                  setContentView(web);
+                  hideBars();
+
+                  final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
+                          .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                          .build();
+
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setAllowFileAccess(false);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                          return loader.shouldInterceptRequest(r.getUrl());
+                      }
+                  });
+                  web.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+
+                  getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+                      @Override public void handleOnBackPressed() {
+                          if (web.canGoBack()) web.goBack(); else finish();
+                      }
+                  });
+              }
+
+              private void hideBars() {
+                  WindowInsetsControllerCompat c = WindowCompat.getInsetsController(getWindow(), web);
+                  c.hide(WindowInsetsCompat.Type.systemBars());
+                  c.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+              }
+
+              @Override public void onWindowFocusChanged(boolean hasFocus) {
+                  super.onWindowFocusChanged(hasFocus);
+                  if (hasFocus) hideBars();
+              }
+
+              @Override protected void onPause() { web.onPause(); super.onPause(); }
+              @Override protected void onResume() { super.onResume(); web.onResume(); }
+          }
+          EOF
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
