@@ -8,6 +8,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: unzip -q PtichyaBurmalda.zip
+      - name: Fix duplicate Kotlin classes
+        working-directory: PtichyaBurmalda
+        run: |
+          sed -i "s|implementation 'androidx.webkit:webkit:1.11.0'|implementation 'androidx.webkit:webkit:1.11.0'\n    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')|" app/build.gradle
+          cat app/build.gradle
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
