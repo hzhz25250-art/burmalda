@@ -1,58 +1,29 @@
-name: Сборка Android APK
-
+name: Build APK
 on:
   push:
-    branches: [main, master]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Распаковать архив с проектом
+      - name: Unpack project
         run: |
-          ZIP=ptichya-burmalda-app.zip
-          if [ ! -f "$ZIP" ]; then ZIP=$(ls *.zip 2>/dev/null | head -n1); fi
-          if [ -n "$ZIP" ]; then
-            echo "Распаковываю $ZIP"
-            unzip -q -o "$ZIP" -d unpacked
-          fi
-          PKG=$(find . -name package.json -not -path '*/node_modules/*' | head -n1)
-          if [ -z "$PKG" ]; then
-            echo "::error::Не найден package.json. Загрузите в корень репозитория архив ptichya-burmalda-app.zip"
-            exit 1
-          fi
-          echo "APP_DIR=$(dirname "$PKG")" >> "$GITHUB_ENV"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
+          if [ -f PtichyaBurmalda.zip ]; then unzip -q -o PtichyaBurmalda.zip; fi
+          SG=$(find . -name settings.gradle -not -path './.git/*' | head -n1)
+          if [ -z "$SG" ]; then echo "::error::settings.gradle not found: upload PtichyaBurmalda.zip to the repository root"; exit 1; fi
+          echo "APP_DIR=$(dirname "$SG")" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-
-      - name: Установить зависимости
-        working-directory: ${{ env.APP_DIR }}
-        run: npm install
-
-      - name: Создать Android-проект из папки www
-        working-directory: ${{ env.APP_DIR }}
-        run: |
-          npx cap add android
-          npx cap sync android
-
-      - name: Собрать APK
-        working-directory: ${{ env.APP_DIR }}/android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
-
-      - name: Выложить APK
-        uses: actions/upload-artifact@v4
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
         with:
-          name: ptichya-burmalda-apk
-          path: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
+          gradle-version: 8.7
+      - run: gradle assembleDebug
+        working-directory: ${{ env.APP_DIR }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PtichyaBurmalda-debug-apk
+          path: ${{ env.APP_DIR }}/app/build/outputs/apk/debug/app-debug.apk
