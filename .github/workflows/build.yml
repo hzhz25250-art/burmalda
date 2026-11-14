@@ -1,110 +1,58 @@
-name: Build APK
+name: Сборка Android APK
+
 on:
   push:
+    branches: [main, master]
   workflow_dispatch:
+
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: unzip -q PtichyaBurmalda.zip
-      - name: Fix duplicate Kotlin classes
-        working-directory: PtichyaBurmalda
+
+      - name: Распаковать архив с проектом
         run: |
-          sed -i "s|implementation 'androidx.webkit:webkit:1.11.0'|implementation 'androidx.webkit:webkit:1.11.0'\n    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')|" app/build.gradle
-      - name: Fullscreen MainActivity
-        working-directory: PtichyaBurmalda
-        run: |
-          cat > app/src/main/java/ru/ptichya/burmalda/MainActivity.java <<'EOF'
-          package ru.ptichya.burmalda;
+          ZIP=ptichya-burmalda-app.zip
+          if [ ! -f "$ZIP" ]; then ZIP=$(ls *.zip 2>/dev/null | head -n1); fi
+          if [ -n "$ZIP" ]; then
+            echo "Распаковываю $ZIP"
+            unzip -q -o "$ZIP" -d unpacked
+          fi
+          PKG=$(find . -name package.json -not -path '*/node_modules/*' | head -n1)
+          if [ -z "$PKG" ]; then
+            echo "::error::Не найден package.json. Загрузите в корень репозитория архив ptichya-burmalda-app.zip"
+            exit 1
+          fi
+          echo "APP_DIR=$(dirname "$PKG")" >> "$GITHUB_ENV"
 
-          import android.annotation.SuppressLint;
-          import android.graphics.Color;
-          import android.os.Build;
-          import android.os.Bundle;
-          import android.view.WindowManager;
-          import android.webkit.WebResourceRequest;
-          import android.webkit.WebResourceResponse;
-          import android.webkit.WebSettings;
-          import android.webkit.WebView;
-          import android.webkit.WebViewClient;
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-          import androidx.activity.OnBackPressedCallback;
-          import androidx.appcompat.app.AppCompatActivity;
-          import androidx.core.view.WindowCompat;
-          import androidx.core.view.WindowInsetsCompat;
-          import androidx.core.view.WindowInsetsControllerCompat;
-          import androidx.webkit.WebViewAssetLoader;
-
-          public class MainActivity extends AppCompatActivity {
-              private WebView web;
-
-              @SuppressLint("SetJavaScriptEnabled")
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-                  if (Build.VERSION.SDK_INT >= 28) {
-                      getWindow().getAttributes().layoutInDisplayCutoutMode =
-                          WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
-                  }
-                  web = new WebView(this);
-                  web.setBackgroundColor(Color.parseColor("#dfe9ee"));
-                  setContentView(web);
-                  hideBars();
-
-                  final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
-                          .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
-                          .build();
-
-                  WebSettings s = web.getSettings();
-                  s.setJavaScriptEnabled(true);
-                  s.setDomStorageEnabled(true);
-                  s.setAllowFileAccess(false);
-                  s.setMediaPlaybackRequiresUserGesture(false);
-
-                  web.setWebViewClient(new WebViewClient() {
-                      @Override
-                      public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
-                          return loader.shouldInterceptRequest(r.getUrl());
-                      }
-                  });
-                  web.loadUrl("https://appassets.androidplatform.net/assets/index.html");
-
-                  getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-                      @Override public void handleOnBackPressed() {
-                          if (web.canGoBack()) web.goBack(); else finish();
-                      }
-                  });
-              }
-
-              private void hideBars() {
-                  WindowInsetsControllerCompat c = WindowCompat.getInsetsController(getWindow(), web);
-                  c.hide(WindowInsetsCompat.Type.systemBars());
-                  c.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-              }
-
-              @Override public void onWindowFocusChanged(boolean hasFocus) {
-                  super.onWindowFocusChanged(hasFocus);
-                  if (hasFocus) hideBars();
-              }
-
-              @Override protected void onPause() { web.onPause(); super.onPause(); }
-              @Override protected void onResume() { super.onResume(); web.onResume(); }
-          }
-          EOF
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
-      - name: Accept Android licenses
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Установить зависимости
+        working-directory: ${{ env.APP_DIR }}
+        run: npm install
+
+      - name: Создать Android-проект из папки www
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Собрать APK
+        working-directory: ${{ env.APP_DIR }}/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Выложить APK
+        uses: actions/upload-artifact@v4
         with:
-          gradle-version: 8.7
-      - run: gradle assembleDebug --stacktrace
-        working-directory: PtichyaBurmalda
-      - uses: actions/upload-artifact@v4
-        with:
-          name: PtichyaBurmalda-debug-apk
-          path: PtichyaBurmalda/app/build/outputs/apk/debug/app-debug.apk
+          name: ptichya-burmalda-apk
+          path: ${{ env.APP_DIR }}/android/app/build/outputs/apk/debug/app-debug.apk
